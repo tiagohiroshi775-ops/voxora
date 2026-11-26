@@ -45,3 +45,7 @@ Envie esta pasta para um repositório GitHub, sem `data/`. No Render, crie um We
 - `server.js`: servidor HTTP, API, SSE, armazenamento e sinalização WebRTC.
 - `public/`: interface, estilos, cliente WebRTC e logotipo.
 - `tests/api.test.js`: teste automatizado do fluxo da API.
+
+## Deploy rápido no Render
+
+Após enviar todos os arquivos para o GitHub, crie um Web Service no Render a partir de `tiagohiroshi775-ops/voxora`, branch `main`. A configuração `render.yaml` também permite criar um Blueprint gratuito. O plano gratuito não possui armazenamento persistente; use apenas para testes. Para manter contas e grupos em produção, configure disco persistente em um plano compatível e `DATA_DIR` para o caminho do disco.

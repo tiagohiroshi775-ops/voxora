@@ -22,3 +22,6 @@
 .control.off,.control.on,#profile-mic.off{animation:call-feedback .35s ease-out}
 .stream-card{animation:stream-appear .2s ease-out}
 @media(prefers-reduced-motion:reduce){.control,.stream-card,#profile-mic{animation:none!important;transition:none!important}}
+
+/* v1.4 profile and reconnect controls */
+.participant-profile{display:flex;flex-direction:column;align-items:center;gap:8px;width:100%;border:0;border-radius:10px;background:transparent;color:inherit;padding:5px;cursor:pointer}.participant-profile:hover,.participant-profile:focus-visible{background:#ffffff0a;outline:1px solid var(--line)}.mini-person.member-profile{display:flex;align-items:center;width:100%;cursor:pointer}.profile-volume{display:grid;gap:9px;width:100%}.profile-volume .participant-volume{font-size:13px}.profile-volume .participant-volume output{min-width:38px}.stream-quality{min-width:0}.stream-quality select{min-width:0}

@@ -49,7 +49,7 @@ function reportQuality(id,video,card){
  info.textContent=dimensions+(qualityFeedback.get(id)||'Qualidade automática; depende da rede');
 }
 function addQualityControl(header,card,video,id){
- const wrap=el('label','stream-quality'),select=el('select'),info=el('small','stream-quality-info');
+ const wrap=el('label','stream-quality'),select=el('select'),info=el('small','stream-quality-info',qualityFeedback.get(id)||'Qualidade automática; depende da rede');
  wrap.append(el('span','','Qualidade'));
  for(const key of ['auto','144','240','360','480','720','1080','1440','2160']){const opt=el('option','',key==='auto'?'Automática (fluidez)':key==='2160'?'4K · 2160p':key+'p');opt.value=key;select.append(opt);}
  select.value=watchQuality.get(id)||'auto';

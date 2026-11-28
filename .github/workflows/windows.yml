@@ -1,0 +1,28 @@
+name: Voxora Windows installer
+on:
+  push:
+    branches: [voxora-1.5]
+    paths: ['desktop/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Voxora-Windows-1.5
+          path: desktop/dist/*.exe
+          if-no-files-found: error

@@ -80,3 +80,7 @@ test('2FA activation, login challenge, recovery and disable',async()=>{
  assert.equal((await request('totp-disable',{currentPassword:'senha1234',code:confirmed.body.recovery[1]},login.cookie)).status,200);
  assert.equal((await request('login',{username:'totpuser',password:'senha1234'})).body.me.twoFactor,false);
 });
+
+test('health check exposes no user or database information',async()=>{
+ const r=await fetch(base+'/healthz');assert.equal(r.status,200);assert.deepEqual(await r.json(),{status:'ok'});
+});

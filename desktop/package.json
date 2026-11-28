@@ -17,7 +17,8 @@
     "productName": "Voxora",
     "files": [
       "main.cjs",
-      "package.json"
+      "package.json",
+      "splash.html"
     ],
     "win": {
       "target": "nsis"

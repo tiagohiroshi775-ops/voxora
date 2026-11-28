@@ -1,5 +1,5 @@
 const {test,before,after}=require('node:test');const assert=require('node:assert/strict');const {spawn}=require('node:child_process');const fs=require('node:fs');const os=require('node:os');const path=require('node:path');const net=require('node:net');let child,dir,base;
-before(async()=>{dir=fs.mkdtempSync(path.join(os.tmpdir(),'voxora-test-'));const probe=net.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));base='http://127.0.0.1:'+port;child=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'..'),env:{...process.env,DATABASE_URL:'',RENDER:'',PORT:String(port),DATA_DIR:dir},stdio:['ignore','pipe','pipe']});await new Promise((r,j)=>{const timer=setTimeout(()=>j(Error('Servidor não iniciou')),5000);child.stdout.on('data',()=>{clearTimeout(timer);r();});child.on('error',j);});});
+before(async()=>{dir=fs.mkdtempSync(path.join(os.tmpdir(),'voxora-test-'));const probe=net.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));base='http://127.0.0.1:'+port;child=spawn(process.execPath,['server.js'],{cwd:path.join(__dirname,'..'),env:{...process.env,DATABASE_URL:'',RENDER:'',PORT:String(port),DATA_DIR:dir,VOXORA_TOTP_KEY:'ab'.repeat(32)},stdio:['ignore','pipe','pipe']});await new Promise((r,j)=>{const timer=setTimeout(()=>j(Error('Servidor não iniciou')),5000);child.stdout.on('data',()=>{clearTimeout(timer);r();});child.on('error',j);});});
 after(()=>{child?.kill();if(dir)fs.rmSync(dir,{recursive:true,force:true});});
 async function request(route,body,cookie){const r=await fetch(base+'/api/'+route,{method:body===undefined?'GET':'POST',headers:{...(cookie?{Cookie:cookie}:{}),...(body!==undefined?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:JSON.stringify(body)});return {status:r.status,body:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
 async function events(cookie,client){const abort=new AbortController();const r=await fetch(base+'/api/events?client='+client,{headers:{Cookie:cookie},signal:abort.signal});assert.equal(r.status,200);const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';return {abort,async next(event){const timer=setTimeout(()=>abort.abort(),4000);try{while(true){const idx=buffer.indexOf('\n\n');if(idx>=0){const block=buffer.slice(0,idx);buffer=buffer.slice(idx+2);if(block.startsWith('event: '+event+'\n'))return JSON.parse(block.split('\ndata: ')[1]);continue;}const x=await reader.read();if(x.done)throw Error('SSE closed');buffer+=decoder.decode(x.value,{stream:true});}}finally{clearTimeout(timer);}}};}
@@ -60,4 +60,23 @@ test('proteções 1.5: origem, cabeçalhos, cookies e revogação de sessões',a
  assert.equal((await request('revoke-other-sessions',{},first)).status,200);
  assert.equal((await request('state',undefined,second.cookie)).status,401);
  assert.equal((await request('state',undefined,first)).status,200);
+});
+
+test('2FA activation, login challenge, recovery and disable',async()=>{
+ const a=await request('register',{username:'totpuser',password:'senha1234'});
+ const old=await request('login',{username:'totpuser',password:'senha1234'});
+ const setup=await request('totp-start',{currentPassword:'senha1234'},a.cookie);
+ assert.equal(setup.status,200);assert.match(setup.body.secret,/^[A-Z2-7]{32}$/);
+ let bits=0,value=0;const bytes=[];for(const c of setup.body.secret){value=(value<<5)|'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(c);bits+=5;if(bits>=8){bytes.push((value>>>(bits-8))&255);bits-=8;}}
+ const t=require('../security/totp.cjs');const code=t.codeAt(Buffer.from(bytes),Math.floor(Date.now()/30000));
+ const confirmed=await request('totp-confirm',{currentPassword:'senha1234',code},a.cookie);
+ assert.equal(confirmed.status,200);assert.equal(confirmed.body.recovery.length,10);
+ assert.equal((await request('state',undefined,old.cookie)).status,401);
+ const challenge=await request('login',{username:'totpuser',password:'senha1234'});assert.equal(challenge.body.twoFactorRequired,true);assert.equal(challenge.cookie,undefined);
+ assert.equal((await request('login',{username:'totpuser',password:'senha1234',code})).status,401);
+ const recovery=confirmed.body.recovery[0];
+ const login=await request('login',{username:'totpuser',password:'senha1234',code:recovery});assert.equal(login.status,200);
+ assert.equal((await request('login',{username:'totpuser',password:'senha1234',code:recovery})).status,401);
+ assert.equal((await request('totp-disable',{currentPassword:'senha1234',code:confirmed.body.recovery[1]},login.cookie)).status,200);
+ assert.equal((await request('login',{username:'totpuser',password:'senha1234'})).body.me.twoFactor,false);
 });

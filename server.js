@@ -74,6 +74,10 @@ const channel=(name,type,owner,priv=false)=>({id:id(),name,type,owner,private:pr
 const server=http.createServer(async(req,res)=>{try{
   const url=new URL(req.url,'http://localhost');const p=url.pathname;const method=req.method;if(storageBroken&&p.startsWith('/api/'))fail(503,'Banco indisponível.');
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','DENY');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");if(process.env.RENDER==='true')res.setHeader('Strict-Transport-Security','max-age=31536000');res.setHeader('Permissions-Policy','microphone=(self), display-capture=(self)');
+  if(p==='/healthz'&&method==='GET'){
+    if(storageBroken)return json(res,503,{status:'unavailable'});
+    return json(res,200,{status:'ok'});
+  }
   if(method==='POST'){if(req.headers['sec-fetch-site']==='cross-site')fail(403,'Origem não permitida.');if(req.headers.origin){const host=req.headers.host;let origin;try{origin=new URL(req.headers.origin);}catch{fail(403,'Origem não permitida.');}if(origin.host!==host||!['https:','http:'].includes(origin.protocol))fail(403,'Origem não permitida.');}}
   if(p==='/api/register'||p==='/api/login'){
     if(method!=='POST')fail(405,'Método inválido.');limit('auth:'+req.socket.remoteAddress,25,60000);const b=await body(req);const username=usernameOf(b.username);limit('auth-user:'+username,15,60000);const pass=typeof b.password==='string'?b.password:'';
@@ -124,5 +128,5 @@ const server=http.createServer(async(req,res)=>{try{
     broadcast();return json(res,200,{ok:true,...result,state:snapshot(uid)});
   }
   if(method!=='GET'&&method!=='HEAD')fail(405,'Método inválido.');const files={'/':'index.html','/index.html':'index.html','/style.css':'style.css','/app.js':'app.js','/logo.svg':'logo.svg','/pitch-worklet.js':'pitch-worklet.js'};const name=files[p];if(!name)fail(404,'Página não encontrada.');const mime={html:'text/html; charset=utf-8',css:'text/css; charset=utf-8',js:'application/javascript; charset=utf-8',svg:'image/svg+xml'};res.writeHead(200,{'Content-Type':mime[name.split('.').pop()],'Cache-Control':'no-cache'});res.end(method==='HEAD'?undefined:fs.readFileSync(path.join(ROOT,name)));
-}catch(e){if(!res.headersSent)json(res,e.status||500,{error:e.status?e.message:'Erro interno do servidor.'});else res.end();if(!e.status)console.error(e);}});
+}catch(e){if(!res.headersSent)json(res,e.status||500,{error:e.status?e.message:'Erro interno do servidor.'});else res.end();if(!e.status)console.error(JSON.stringify({event:'request_failure',status:500,time:new Date().toISOString()}));}});
 initStorage().then(()=>server.listen(Number(process.env.PORT)||3000,'0.0.0.0',()=>console.log('Voxora disponível na porta '+(process.env.PORT||3000)))).catch(e=>{console.error('Falha ao inicializar armazenamento:',e.message);process.exit(1);});

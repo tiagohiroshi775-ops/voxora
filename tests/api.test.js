@@ -44,3 +44,20 @@ test('perfil, privacidade, foto, alteração de conta e transmissão simultânea
 });
 
 test('usuário único, sessão persistente e exclusão voluntária',async()=>{const a=await request('register',{username:'permanente',password:'senha1234'});assert.equal(a.status,200);assert.equal((await request('register',{username:'PERMANENTE',password:'senha1234'})).status,409);const g=await request('groups',{name:'Permanente'},a.cookie);assert.equal(g.status,200);assert.equal((await request('state',undefined,a.cookie)).body.groups.length,1);assert.equal((await request('delete-account',{currentPassword:'errada'},a.cookie)).status,401);assert.equal((await request('delete-account',{currentPassword:'senha1234'},a.cookie)).status,200);assert.equal((await request('state',undefined,a.cookie)).status,401);assert.equal((await request('login',{username:'permanente',password:'senha1234'})).status,401);const b=await request('register',{username:'novo',password:'senha1234'});assert.equal((await request('invite',{code:g.body.state.groups[0].code},b.cookie)).body.state.groups[0].owner,b.body.me.id);});
+
+test('proteções 1.5: origem, cabeçalhos, cookies e revogação de sessões',async()=>{
+ const raw=await fetch(base+'/api/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:'securitytest',password:'senha1234'})});
+ assert.equal(raw.status,200);
+ const set=raw.headers.get('set-cookie');assert.match(set,/HttpOnly/i);assert.match(set,/SameSite=Lax/i);assert.match(set,/Max-Age=2592000/i);
+ const first=set.split(';')[0];await raw.json();
+ const second=await request('login',{username:'securitytest',password:'senha1234'});
+ assert.equal(second.status,200);
+ for(const headers of [{Origin:'https://example.invalid'},{'Sec-Fetch-Site':'cross-site'}]){
+ const blocked=await fetch(base+'/api/groups',{method:'POST',headers:{...headers,Cookie:first,'Content-Type':'application/json'},body:JSON.stringify({name:'Bloqueado'})});assert.equal(blocked.status,403);
+ }
+ const page=await fetch(base);assert.equal(page.headers.get('x-frame-options'),'DENY');assert.match(page.headers.get('content-security-policy'),/frame-ancestors 'none'/);assert.equal(page.headers.get('x-content-type-options'),'nosniff');
+ assert.equal((await fetch(base+'/pitch-worklet.js')).status,200);
+ assert.equal((await request('revoke-other-sessions',{},first)).status,200);
+ assert.equal((await request('state',undefined,second.cookie)).status,401);
+ assert.equal((await request('state',undefined,first)).status,200);
+});

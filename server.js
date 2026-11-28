@@ -9,6 +9,7 @@ const ROOT = path.join(__dirname,'public');
 const DATA = process.env.DATA_DIR || path.join(__dirname,'data');
 fs.mkdirSync(DATA,{recursive:true});
 const FILE = path.join(DATA,'db.json');
+const SESSION_TTL=30*24*60*60*1000;
 let db={users:[],groups:[],sessions:{}},pool=null,revision=0,writeQueue=Promise.resolve(),storageBroken=false;
 const usernameOf=v=>typeof v==='string'?v.trim().toLowerCase():'';
 const validUsername=v=>/^[a-z0-9][a-z0-9_.-]{2,23}$/.test(v);
@@ -18,7 +19,7 @@ function migrate(){
     if(!u.username){let base=(u.email?.split('@')[0]||u.name||'usuario').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_.-]/g,'').replace(/^[^a-z0-9]+/,'').slice(0,18);if(base.length<3)base='usuario';let name=base,n=1;while(used.has(name))name=base+'-'+n++;u.username=name;used.add(name);}
     if(u.avatar&&!u.avatarData){const f=path.join(DATA,u.id+'.jpg');if(fs.existsSync(f))u.avatarData=fs.readFileSync(f).toString('base64');else u.avatar=null;}
   }
-  for(const [k,v] of Object.entries(db.sessions)){if(v.exp&&v.exp<Date.now())delete db.sessions[k];else delete v.exp;}
+  for(const [k,v] of Object.entries(db.sessions)){if(v.exp&&v.exp<=Date.now())delete db.sessions[k];else if(!v.exp)v.exp=Date.now()+SESSION_TTL;}
 }
 async function initStorage(){
   if(process.env.RENDER==='true'&&!process.env.DATABASE_URL)throw Error('Configure DATABASE_URL antes de publicar.');
@@ -46,9 +47,9 @@ async function save(){
 }
 function fail(status,msg){throw Object.assign(new Error(msg),{status});}
 function json(res,status,obj){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store'});res.end(JSON.stringify(obj));}
-function session(req){const token=(req.headers.cookie||'').match(/(?:^|;\s*)voxora=([a-f0-9]+)/)?.[1]; const key=token&&hash(token);const s=key&&db.sessions[key];return s?{user:db.users.find(u=>u.id===s.user),key,token}:null;}
-function cookie(req,res,token){res.setHeader('Set-Cookie',`voxora=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=34560000${req.socket.encrypted||req.headers['x-forwarded-proto']==='https'?'; Secure':''}`);}
-async function setSession(req,res,u){const token=crypto.randomBytes(32).toString('hex');db.sessions[hash(token)]={user:u.id};await save();cookie(req,res,token);}
+function session(req){const token=(req.headers.cookie||'').match(/(?:^|;\s*)voxora=([a-f0-9]+)/)?.[1]; const key=token&&hash(token);const s=key&&db.sessions[key];return s&&s.exp>Date.now()?{user:db.users.find(u=>u.id===s.user),key,token}:null;}
+function cookie(req,res,token){res.setHeader('Set-Cookie',`voxora=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000${process.env.RENDER==='true'||req.socket.encrypted||req.headers['x-forwarded-proto']==='https'?'; Secure':''}`);}
+async function setSession(req,res,u){const token=crypto.randomBytes(32).toString('hex');db.sessions[hash(token)]={user:u.id,exp:Date.now()+SESSION_TTL};await save();cookie(req,res,token);}
 function userView(u){return {id:u.id,name:u.name,bio:u.bio||'',avatar:u.avatar?`/api/avatar/${u.id}?v=${u.avatar}`:null};}
 function ownView(u){return {...userView(u),username:u.username};}
 function member(g,u){return g.members.includes(u);}
@@ -67,7 +68,7 @@ const channel=(name,type,owner,priv=false)=>({id:id(),name,type,owner,private:pr
 const server=http.createServer(async(req,res)=>{try{
   const url=new URL(req.url,'http://localhost');const p=url.pathname;const method=req.method;if(storageBroken&&p.startsWith('/api/'))fail(503,'Banco indisponível.');
   res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('Referrer-Policy','same-origin');res.setHeader('X-Frame-Options','DENY');res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");if(process.env.RENDER==='true')res.setHeader('Strict-Transport-Security','max-age=31536000');res.setHeader('Permissions-Policy','microphone=(self), display-capture=(self)');
-  if(method==='POST'&&req.headers.origin){const host=req.headers['x-forwarded-host']||req.headers.host;if(new URL(req.headers.origin).host!==host)fail(403,'Origem não permitida.');}
+  if(method==='POST'){if(req.headers['sec-fetch-site']==='cross-site')fail(403,'Origem não permitida.');if(req.headers.origin){const host=req.headers.host;let origin;try{origin=new URL(req.headers.origin);}catch{fail(403,'Origem não permitida.');}if(origin.host!==host||!['https:','http:'].includes(origin.protocol))fail(403,'Origem não permitida.');}}
   if(p==='/api/register'||p==='/api/login'){
     if(method!=='POST')fail(405,'Método inválido.');limit('auth:'+req.socket.remoteAddress,25,60000);const b=await body(req);const username=usernameOf(b.username);limit('auth-user:'+username,15,60000);const pass=typeof b.password==='string'?b.password:'';
     if(!validUsername(username)||pass.length<8||pass.length>128)fail(400,'Use um usuário de 3 a 24 caracteres (letras, números, ponto, hífen ou _) e uma senha de 8 a 128 caracteres.');
@@ -86,7 +87,7 @@ const server=http.createServer(async(req,res)=>{try{
       if(old){clearInterval(old.ping);online.delete(cid);old.res.end();}
       res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-cache, no-transform','Connection':'keep-alive','X-Accel-Buffering':'no'});res.write(': connected\n\n');const client={id:cid,uid,session:s.key,res,room:null,muted:false,screen:false};online.set(cid,client);client.ping=setInterval(()=>{if(!res.destroyed)res.write(': ping\n\n');},15000);res.on('close',()=>remove(client));emit(client,'ready',{id:cid});broadcast();return;
     }
-    if(method!=='POST')fail(405,'Método inválido.');limit('write:'+uid,180,60000);const b=await body(req);let result={};
+    if(method!=='POST')fail(405,'Método inválido.');if(p!=='/api/signal')limit('write:'+uid,180,60000);const b=await body(req);let result={};
     switch(p){
       case '/api/profile': {const name=clean(b.name,32);if(name.length<2)fail(400,'Nome precisa ter pelo menos 2 caracteres.');let photo;if(typeof b.avatar==='string'){if(!/^data:image\/jpeg;base64,[A-Za-z0-9+/=]+$/.test(b.avatar))fail(400,'Foto inválida.');photo=Buffer.from(b.avatar.split(',')[1],'base64');if(photo.length>120000||photo.length<4||photo[0]!==255||photo[1]!==216||photo.at(-2)!==255||photo.at(-1)!==217)fail(400,'Foto inválida ou muito grande.');}if(photo){s.user.avatarData=photo.toString('base64');s.user.avatar=id();}else if(b.avatar===null){s.user.avatar=null;delete s.user.avatarData;fs.rmSync(path.join(DATA,uid+'.jpg'),{force:true});}s.user.name=name;s.user.bio=clean(b.bio,160);await save();break;}
       case '/api/account': {limit('account:'+uid,8,60000);const username=usernameOf(b.username);const current=typeof b.currentPassword==='string'?b.currentPassword:'';const next=typeof b.newPassword==='string'?b.newPassword:'';if(!validUsername(username))fail(400,'Usuário inválido.');if(current.length>128||!current||!crypto.timingSafeEqual(await scrypt(current,s.user.salt,64),Buffer.from(s.user.digest,'hex')))fail(401,'Senha atual incorreta.');if(next&&(next.length<8||next.length>128))fail(400,'A nova senha deve ter de 8 a 128 caracteres.');const salt=next?crypto.randomBytes(16).toString('hex'):null;const digest=next?(await scrypt(next,salt,64)).toString('hex'):null;if(db.users.some(u=>u.id!==uid&&u.username===username))fail(409,'Este usuário já existe.');s.user.username=username;delete s.user.email;if(next){s.user.salt=salt;s.user.digest=digest;for(const k of Object.keys(db.sessions))if(k!==s.key&&db.sessions[k].user===uid)delete db.sessions[k];for(const c of [...online.values()])if(c.uid===uid&&c.session!==s.key){remove(c);c.res.end();}}await save();break;}
@@ -99,6 +100,7 @@ const server=http.createServer(async(req,res)=>{try{
         db.users=db.users.filter(u=>u.id!==uid);fs.rmSync(path.join(DATA,uid+'.jpg'),{force:true});await save();broadcast();
         res.setHeader('Set-Cookie','voxora=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');return json(res,200,{ok:true});
       }
+      case '/api/revoke-other-sessions': {limit('account:'+uid,8,60000);for(const k of Object.keys(db.sessions))if(k!==s.key&&db.sessions[k].user===uid)delete db.sessions[k];for(const c of [...online.values()])if(c.uid===uid&&c.session!==s.key){remove(c);c.res.end();}await save();break;}
       case '/api/logout':delete db.sessions[s.key];await save();for(const c of [...online.values()])if(c.session===s.key){remove(c);c.res.end();}res.setHeader('Set-Cookie','voxora=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');return json(res,200,{ok:true});
       case '/api/groups': {const name=clean(b.name,40);if(name.length<2)fail(400,'Nome do grupo muito curto.');if(db.groups.filter(g=>g.owner===uid).length>=30)fail(400,'Limite de grupos atingido.');const g={id:id(),name,owner:uid,code:code(),members:[uid],channels:[channel('geral','text',uid),channel('Cinema','voice',uid),channel('Resenha','voice',uid)]};db.groups.push(g);await save();result={group:g.id};break;}
       case '/api/invite': {limit('invite:'+uid,12,60000);const val=clean(b.code,32).toUpperCase();const g=db.groups.find(x=>x.code===val||x.channels.some(c=>c.code===val));if(!g)fail(404,'Código de convite inválido.');const c=g.channels.find(x=>x.code===val);if(!member(g,uid))g.members.push(uid);if(!g.owner){g.owner=uid;for(const ch of g.channels)if(!ch.owner)ch.owner=uid;}if(c&&!c.allowed.includes(uid))c.allowed.push(uid);await save();result={group:g.id,channel:c?.id};break;}

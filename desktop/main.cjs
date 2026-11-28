@@ -1,5 +1,6 @@
 const {app,BrowserWindow,session,shell,dialog}=require('electron');
 const path=require('node:path');
+const {initUpdates}=require('./updater.cjs');
 const origin='https://voxora-zghs.onrender.com';
 function trusted(url){try{return new URL(url).origin===origin}catch{return false}}
 app.whenReady().then(()=>{
@@ -15,5 +16,5 @@ let loaded=false;
 const closeSplash=()=>{if(!splash.isDestroyed())splash.destroy();};
 const timeout=setTimeout(()=>{if(!loaded&&!win.isDestroyed()){closeSplash();dialog.showErrorBox('Voxora','Não foi possível conectar ao servidor. Verifique sua internet e abra o aplicativo novamente.');win.destroy();}},30000);
 win.once('closed',()=>{clearTimeout(timeout);closeSplash();});
-win.loadURL(origin).then(()=>{if(win.isDestroyed())return;loaded=true;clearTimeout(timeout);closeSplash();win.show();}).catch(()=>{if(win.isDestroyed())return;clearTimeout(timeout);closeSplash();dialog.showErrorBox('Voxora','Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.');win.destroy();});
+win.loadURL(origin).then(()=>{if(win.isDestroyed())return;loaded=true;clearTimeout(timeout);closeSplash();win.show();initUpdates(win);}).catch(()=>{if(win.isDestroyed())return;clearTimeout(timeout);closeSplash();dialog.showErrorBox('Voxora','Não foi possível conectar ao servidor. Verifique sua internet e tente novamente.');win.destroy();});
 });app.on('window-all-closed',()=>app.quit());

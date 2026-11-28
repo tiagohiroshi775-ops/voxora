@@ -1,12 +1,12 @@
 {
   "name": "voxora-desktop",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Voxora para Windows",
   "author": "Voxora",
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis --x64"
+    "dist": "electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
     "electron": "^40.0.0",
@@ -18,7 +18,8 @@
     "files": [
       "main.cjs",
       "package.json",
-      "splash.html"
+      "splash.html",
+      "updater.cjs"
     ],
     "win": {
       "target": "nsis"
@@ -27,6 +28,17 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
     },
-    "artifactName": "Voxora-Setup-${version}.${ext}"
+    "artifactName": "Voxora-Setup-${version}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "tiagohiroshi775-ops",
+        "repo": "voxora",
+        "releaseType": "draft"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
   }
 }

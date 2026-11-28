@@ -40,5 +40,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.6.2"
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
   }
 }
